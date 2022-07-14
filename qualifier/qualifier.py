@@ -20,6 +20,7 @@ class RestaurantManager:
         already defined a staff dictionary.
         """
         self.staff = {}
+        self.orders_completed = {}
 
     async def __call__(self, request: Request):
         """Handle a request received.
@@ -31,4 +32,32 @@ class RestaurantManager:
             Request object containing information about the sent
             request to your application.
         """
-        ...
+
+        match request.scope["type"]:
+            case "staff.onduty":
+                self.staff[request.scope["id"]] = request
+                self.orders_completed[request.scope["id"]] = 0
+            case "staff.offduty":
+                del self.staff[request.scope["id"]]
+                del self.orders_completed[request.scope["id"]]
+            case "order":
+                await self.handle_order(request)
+
+
+    async def handle_order(self, request: Request):
+        selected_chef = self.select_staff(request.scope["speciality"])
+
+        full_order = await request.receive()
+        await selected_chef.send(full_order)
+
+        result = await selected_chef.receive()
+        await request.send(result)
+
+
+    def select_staff(self, speciality: str) -> Request:
+        """Returns a valid staff member with the least orders completed. """
+        valid_staff = list(filter(lambda id_ : (speciality in self.staff[id_].scope["speciality"]), self.staff.keys()))
+        least_worked = min(valid_staff, key=self.orders_completed.get)
+
+        self.orders_completed[least_worked] += 1
+        return self.staff[least_worked]
